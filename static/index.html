@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Manager</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        .folder {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .folder-link {
+            flex-grow: 1;
+            display: flex;
+            justify-content: space-between;
+            text-decoration: none;
+            color: black;
+            padding: 8px;
+        }
+
+        .folder-name {
+            flex-grow: 1;
+        }
+
+        .delete-btn {
+            background-color: red;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>File Manager</h1>
+    <form id="new-folder-form">
+        <input type="text" id="folder-name" placeholder="New folder name" required>
+        <button type="submit">Create Folder</button>
+    </form>
+    <h2>Folders</h2>
+    <div id="folders-list"></div>
+
+    <script>
+        async function fetchFolders() {
+            const response = await fetch('/list');
+            const folders = await response.json();
+            const foldersList = document.getElementById('folders-list');
+            foldersList.innerHTML = '';
+            folders.forEach(folder => {
+                const folderDiv = document.createElement('div');
+                folderDiv.className = 'folder';
+
+                const folderLink = document.createElement('a');
+                folderLink.className = 'folder-link';
+                folderLink.href = `/child.html?pname=${folder}`;
+
+                const folderName = document.createElement('span');
+                folderName.className = 'folder-name';
+                folderName.textContent = folder;
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.textContent = '🗑️';
+                deleteBtn.onclick = (event) => {
+                    event.preventDefault(); // Prevent the link click event
+                    deleteFolder(folder);
+                };
+
+                folderLink.appendChild(folderName);
+                folderLink.appendChild(deleteBtn);
+                folderDiv.appendChild(folderLink);
+                foldersList.appendChild(folderDiv);
+            });
+        }
+
+        async function createFolder(event) {
+            event.preventDefault();
+            const folderName = document.getElementById('folder-name').value;
+            await fetch(`/new/${folderName}`, {
+                method: 'POST'
+            });
+            document.getElementById('folder-name').value = '';
+            fetchFolders();
+        }
+
+        async function deleteFolder(folder) {
+            if (confirm(`Are you sure you want to delete the folder "${folder}"?`)) {
+                await fetch(`/delete/${folder}`, {
+                    method: 'DELETE'
+                });
+                fetchFolders();
+            }
+        }
+
+        document.getElementById('new-folder-form').addEventListener('submit', createFolder);
+        fetchFolders();
+    </script>
+</body>
+
+</html>

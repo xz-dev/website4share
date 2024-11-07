@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Child Directory</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        .item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .item-name {
+            flex-grow: 1;
+        }
+
+        .item-time {
+            font-size: 0.8em;
+            color: rgba(0, 0, 0, 0.6);
+            margin-left: 10px;
+        }
+
+        .delete-btn,
+        .download-btn,
+        .copy-btn {
+            background-color: red;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+
+        .download-btn {
+            background-color: green;
+        }
+
+        .copy-btn {
+            background-color: blue;
+        }
+
+        .back-btn {
+            background-color: gray;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Child Directory</h1>
+    <button class="back-btn" onclick="window.location.href='/'">Back to Root</button>
+    <h2>Pasteboard</h2>
+    <form id="new-pasteboard-form">
+        <input type="text" id="pasteboard-content" placeholder="New pasteboard content" required>
+        <button type="submit">Create Pasteboard</button>
+    </form>
+    <div id="pasteboard-list"></div>
+
+    <h2>Files</h2>
+    <input type="file" id="file-content" required>
+    <div id="file-list"></div>
+
+    <script>
+        const pname = new URLSearchParams(window.location.search).get('pname');
+
+        async function fetchPasteboard() {
+            const response = await fetch(`/list_pasteboard/${pname}`);
+            const pasteboards = await response.json();
+            pasteboards.sort((a, b) => b.timestamp - a.timestamp); // Sort by timestamp descending
+            const pasteboardList = document.getElementById('pasteboard-list');
+            pasteboardList.innerHTML = '';
+            pasteboards.forEach(pasteboard => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'item';
+
+                const itemName = document.createElement('span');
+                itemName.className = 'item-name';
+                itemName.textContent = pasteboard.content;
+
+                const itemTime = document.createElement('span');
+                itemTime.className = 'item-time';
+                itemTime.textContent = new Date(pasteboard.timestamp * 1000).toLocaleString();
+
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn';
+                copyBtn.textContent = '📋';
+                copyBtn.onclick = () => copyToClipboard(pasteboard.content);
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.textContent = '🗑️';
+                deleteBtn.onclick = () => deletePasteboard(pasteboard.id, pasteboard.content, itemTime.textContent);
+
+                itemDiv.appendChild(itemName);
+                itemDiv.appendChild(itemTime);
+                itemDiv.appendChild(copyBtn);
+                itemDiv.appendChild(deleteBtn);
+                pasteboardList.appendChild(itemDiv);
+            });
+        }
+
+        async function createPasteboard(event) {
+            event.preventDefault();
+            const content = document.getElementById('pasteboard-content').value;
+            await fetch(`/new_pasteboard/${pname}`, {
+                method: 'POST',
+                body: content
+            });
+            document.getElementById('pasteboard-content').value = '';
+            fetchPasteboard();
+        }
+
+        async function deletePasteboard(id, content, time) {
+            if (confirm(`Sure delete: "${content}" at ${time}?`)) {
+                await fetch(`/delete_pasteboard/${pname}/${id}`, {
+                    method: 'DELETE'
+                });
+                fetchPasteboard();
+            }
+        }
+
+        async function fetchFiles() {
+            const response = await fetch(`/list_files/${pname}`);
+            const files = await response.json();
+            files.sort((a, b) => b.timestamp - a.timestamp); // Sort by timestamp descending
+            const fileList = document.getElementById('file-list');
+            fileList.innerHTML = '';
+            files.forEach(file => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'item';
+
+                const itemName = document.createElement('span');
+                itemName.className = 'item-name';
+                itemName.textContent = file.name;
+
+                const itemTime = document.createElement('span');
+                itemTime.className = 'item-time';
+                itemTime.textContent = new Date(file.timestamp * 1000).toLocaleString();
+
+                const downloadBtn = document.createElement('button');
+                downloadBtn.className = 'download-btn';
+                downloadBtn.textContent = '⬇️';
+                downloadBtn.onclick = () => downloadFile(file.name);
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.textContent = '🗑️';
+                deleteBtn.onclick = () => deleteFile(file.name);
+
+                itemDiv.appendChild(itemName);
+                itemDiv.appendChild(itemTime);
+                itemDiv.appendChild(downloadBtn);
+                itemDiv.appendChild(deleteBtn);
+                fileList.appendChild(itemDiv);
+            });
+        }
+
+        async function uploadFile(event) {
+            const fileContent = event.target.files[0];
+            const fileName = fileContent.name;
+            const arrayBuffer = await fileContent.arrayBuffer();
+            await fetch(`/new_file/${pname}/${fileName}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/octet-stream'
+                },
+                body: arrayBuffer
+            });
+            fetchFiles();
+        }
+
+        async function deleteFile(name) {
+            if (confirm(`Are you sure you want to delete the file "${name}"?`)) {
+                await fetch(`/delete_files/${pname}/${name}`, {
+                    method: 'DELETE'
+                });
+                fetchFiles();
+            }
+        }
+
+        async function downloadFile(name) {
+            const response = await fetch(`/files/${pname}/${name}`);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Copied to clipboard');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
+
+        document.getElementById('new-pasteboard-form').addEventListener('submit', createPasteboard);
+        document.getElementById('file-content').addEventListener('change', uploadFile);
+        fetchPasteboard();
+        fetchFiles();
+    </script>
+</body>
+
+</html>
