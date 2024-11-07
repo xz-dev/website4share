@@ -297,7 +297,7 @@
         }
 
         async function downloadFile(name) {
-            const response = await fetch(`/files/${pname}/${name}`);
+            const response = await fetch(`/files/${pname}/files/${name}`);
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');

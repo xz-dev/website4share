@@ -24,6 +24,7 @@ WORKDIR /usr/src/app
 
 # Copy the compiled binary from the build stage
 COPY --from=builder /usr/src/app/target/release/website4share .
+COPY --from=builder /usr/src/app/static ./static
 
 # Expose the application port
 EXPOSE 8080

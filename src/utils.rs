@@ -3,7 +3,7 @@ use tokio::fs;
 
 // get listen address or env LISTEN_ADDR
 pub fn get_listen_addr() -> String {
-    env::var("LISTEN_ADDR").unwrap_or("127.0.0.1:8080".to_string())
+    env::var("LISTEN_ADDR").unwrap_or("0.0.0.0:8080".to_string())
 }
 
 // get tmp dir or env TMPDIR

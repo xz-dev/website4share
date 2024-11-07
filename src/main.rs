@@ -6,7 +6,6 @@ use actix_multipart::Multipart;
 use actix_web::{delete, get, post, web, App, HttpResponse, HttpServer, Responder, Result};
 use futures::StreamExt;
 use md5;
-use serde::Deserialize;
 use serde_json::Map;
 use std::str;
 use tokio::fs;
@@ -31,16 +30,11 @@ async fn list() -> Result<impl Responder> {
     Ok(web::Json(json_list))
 }
 
-#[derive(Deserialize)]
-struct NewDir {
-    name: String,
-}
-
-#[post("/new")]
-async fn new(payload: web::Json<NewDir>) -> Result<impl Responder> {
+#[post("/new/{name}")]
+async fn new(name: web::Path<String>) -> Result<impl Responder> {
     // create new dir in tmp_dir
     let dir = utils::get_tmp_dir().await;
-    let new_dir = dir.join(&payload.name);
+    let new_dir = dir.join(&name.to_string());
     fs::create_dir_all(&new_dir).await?;
     Ok(HttpResponse::Ok())
 }
