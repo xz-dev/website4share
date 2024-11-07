@@ -77,6 +77,7 @@
     <form id="new-pasteboard-form">
         <input type="text" id="pasteboard-content" placeholder="New pasteboard content" required>
         <button type="submit">Create Pasteboard</button>
+        <button type="button" id="paste-from-clipboard">Paste from Clipboard</button>
     </form>
     <div id="pasteboard-list"></div>
 
@@ -198,27 +199,92 @@
                 }
             }
 
-            const arrayBuffer = await fileContent.arrayBuffer();
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', `/new_file/${pname}/${fileName}`, true);
-            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+            // Check the current size of the file on the server
+            const checkResponse = await fetch(`/check_new_file/${pname}/${fileName}`);
+            const checkResult = await checkResponse.json();
+            let offset = checkResult.size || 0;
 
-            xhr.upload.onprogress = function (event) {
-                if (event.lengthComputable) {
-                    const percentComplete = (event.loaded / event.total) * 100;
-                    document.getElementById('progress-bar-fill').style.width = percentComplete + '%';
-                }
-            };
+            const chunkSize = 1024 * 1024; // 1MB
+            const totalChunks = Math.ceil(fileContent.size / chunkSize);
+            let currentChunk = Math.floor(offset / chunkSize);
+            let retryCount = 0;
+            const maxRetries = 3;
 
-            xhr.onload = function () {
-                if (xhr.status === 200) {
-                    fetchFiles();
+            function readAndSendChunk() {
+                const start = currentChunk * chunkSize;
+                const end = Math.min(start + chunkSize, fileContent.size);
+                const blob = fileContent.slice(start, end);
+
+                const formData = new FormData();
+                formData.append('file', blob, fileName);
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `/new_file/${pname}/${fileName}/${start}`, true);
+
+                xhr.upload.onprogress = function (event) {
+                    if (event.lengthComputable) {
+                        const percentComplete = ((currentChunk * chunkSize + event.loaded) / fileContent.size) * 100;
+                        document.getElementById('progress-bar-fill').style.width = percentComplete + '%';
+                    }
+                };
+
+                xhr.onload = function () {
+                    if (xhr.status === 200) {
+                        currentChunk++;
+                        if (currentChunk < totalChunks) {
+                            readAndSendChunk();
+                        } else {
+                            document.getElementById('progress-bar-fill').style.width = '100%';
+                            fetchFiles();
+                            // Check if the file was uploaded successfully
+                            checkFileUpload();
+                        }
+                    } else {
+                        handleUploadError();
+                    }
+                };
+
+                xhr.onerror = function () {
+                    handleUploadError();
+                };
+
+                xhr.send(formData);
+            }
+
+            function handleUploadError() {
+                if (retryCount < maxRetries) {
+                    retryCount++;
+                    alert(`File upload error. Retrying... (${retryCount}/${maxRetries})`);
+                    // Retry upload from the current chunk
+                    readAndSendChunk();
                 } else {
-                    alert('Failed to upload file.');
+                    alert('File upload failed after 3 attempts. Please try again manually.');
                 }
-            };
+            }
 
-            xhr.send(arrayBuffer);
+            async function checkFileUpload() {
+                // Check the size of the uploaded file on the server
+                const checkResponse = await fetch(`/check_new_file/${pname}/${fileName}`);
+                const checkResult = await checkResponse.json();
+                const serverFileSize = checkResult.size || 0;
+
+                if (serverFileSize !== fileContent.size) {
+                    handleUploadError();
+                } else {
+                    // Mark the file upload as done
+                    await fetch(`/done_new_file/${pname}/${fileName}`, {
+                        method: 'POST'
+                    });
+                    // Reset progress bar after a short delay
+                    setTimeout(() => {
+                        document.getElementById('progress-bar-fill').style.width = '0%';
+                        alert('File uploaded successfully.');
+                        location.reload(); // Refresh the page
+                    }, 2000);
+                }
+            }
+
+            readAndSendChunk();
         }
 
         async function deleteFile(name) {
@@ -251,7 +317,17 @@
             });
         }
 
+        async function pasteFromClipboard() {
+            try {
+                const text = await navigator.clipboard.readText();
+                document.getElementById('pasteboard-content').value = text;
+            } catch (err) {
+                console.error('Failed to read clipboard contents: ', err);
+            }
+        }
+
         document.getElementById('new-pasteboard-form').addEventListener('submit', createPasteboard);
+        document.getElementById('paste-from-clipboard').addEventListener('click', pasteFromClipboard);
         document.getElementById('file-content').addEventListener('change', uploadFile);
         fetchPasteboard();
         fetchFiles();

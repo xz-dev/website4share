@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::Map;
 use std::str;
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 #[get("/list")]
 async fn list() -> Result<impl Responder> {
@@ -158,17 +158,36 @@ async fn list_files(pname: web::Path<String>) -> Result<impl Responder> {
     Ok(web::Json(json_list))
 }
 
-#[post("/new_file/{pname}/{name}")]
+#[post("/new_file/{pname}/{name}/{offset}")]
 async fn new_file(
-    path: web::Path<(String, String)>,
+    path: web::Path<(String, String, String)>,
     mut payload: Multipart,
 ) -> Result<impl Responder> {
-    let (pname, name) = path.into_inner();
-    // create new files file in tmp_dir
+    let (pname, name, offset) = path.into_inner();
     let dir = utils::get_files_dir(&pname).await?;
     let file_path = dir.join(&name);
-    let mut file = fs::File::create(&file_path).await?;
+    let offset = offset.parse::<u64>().unwrap_or_default();
 
+    // Use OpenOptions to open the file so that data can be appended when the file exists
+    let mut file = if offset == 0 {
+        fs::File::create(&file_path).await?
+    } else {
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&file_path)
+            .await?
+    };
+    if offset == 0 {
+        // touch file_name.uploading file for marking the file is uploading
+        let uploading_file = file_path.with_extension("uploading");
+        fs::write(&uploading_file, "").await?;
+    }
+
+    // seek to the offset
+    file.seek(std::io::SeekFrom::Start(offset)).await?;
+
+    // Write data to the file
     while let Ok(Some(mut field)) = payload.try_next().await {
         while let Some(chunk) = field.next().await {
             let data = chunk?;
@@ -176,6 +195,42 @@ async fn new_file(
         }
     }
 
+    Ok(HttpResponse::Ok())
+}
+
+// return the file size, to let client know if the file is uploaded, and where to resume
+#[get("/check_new_file/{pname}/{name}")]
+async fn check_new_file(path: web::Path<(String, String)>) -> Result<impl Responder> {
+    let (pname, name) = path.into_inner();
+    let dir = utils::get_files_dir(&pname).await?;
+    let file_path = dir.join(&name);
+
+    let size = match fs::metadata(&file_path).await {
+        Ok(metadata) => {
+            let uploading_file = file_path.with_extension("uploading");
+            if uploading_file.exists() {
+                metadata.len()
+            } else {
+                0
+            }
+        }
+        Err(_) => 0,
+    };
+
+    let json = serde_json::json!({
+        "size": size,
+    });
+
+    Ok(web::Json(json))
+}
+
+#[post("/done_new_file/{pname}/{name}")]
+async fn done_new_file(path: web::Path<(String, String)>) -> Result<impl Responder> {
+    let (pname, name) = path.into_inner();
+    let dir = utils::get_files_dir(&pname).await?;
+    let file_path = dir.join(&name);
+    let uploading_file = file_path.with_extension("uploading");
+    fs::remove_file(&uploading_file).await?;
     Ok(HttpResponse::Ok())
 }
 
@@ -202,6 +257,8 @@ async fn main() -> std::io::Result<()> {
             .service(delete_pasteboard)
             .service(list_files)
             .service(new_file)
+            .service(check_new_file)
+            .service(done_new_file)
             .service(delete_files)
             .service(
                 Files::new("/files", &data_dir)
