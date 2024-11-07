@@ -1,4 +1,5 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, path::PathBuf};
+use tokio::fs;
 
 // get listen address or env LISTEN_ADDR
 pub fn get_listen_addr() -> String {
@@ -6,31 +7,34 @@ pub fn get_listen_addr() -> String {
 }
 
 // get tmp dir or env TMPDIR
-pub fn get_tmp_dir() -> PathBuf {
-    let dir = env::var("TMPDIR")
+pub fn _get_tmp_dir() -> PathBuf {
+    env::var("TMPDIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| env::temp_dir().join("website4share"));
-    fs::create_dir_all(&dir).unwrap();
+        .unwrap_or_else(|_| env::temp_dir().join("website4share"))
+}
+pub async fn get_tmp_dir() -> PathBuf {
+    let dir = _get_tmp_dir();
+    fs::create_dir_all(&dir).await.unwrap();
     dir
 }
 
-pub fn get_pasteboard_dir(pname: &str) -> Result<PathBuf, std::io::Error> {
-    let dir = get_tmp_dir().join(pname).join("pasteboard");
-    fs::create_dir_all(&dir)?;
+pub async fn get_pasteboard_dir(pname: &str) -> Result<PathBuf, std::io::Error> {
+    let dir = get_tmp_dir().await.join(pname).join("pasteboard");
+    fs::create_dir_all(&dir).await?;
     Ok(dir)
 }
 
-pub fn get_files_dir(pname: &str) -> Result<PathBuf, std::io::Error> {
-    let dir = get_tmp_dir().join(pname).join("files");
-    fs::create_dir_all(&dir)?;
+pub async fn get_files_dir(pname: &str) -> Result<PathBuf, std::io::Error> {
+    let dir = get_tmp_dir().await.join(pname).join("files");
+    fs::create_dir_all(&dir).await?;
     Ok(dir)
 }
 
 // get folder list in dir
-pub fn get_folder_list(dir: &PathBuf) -> Result<Vec<PathBuf>, std::io::Error> {
+pub async fn get_folder_list(dir: &PathBuf) -> Result<Vec<PathBuf>, std::io::Error> {
     let mut folder_list = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry.unwrap();
+    let mut entries = fs::read_dir(dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         if path.is_dir() {
             folder_list.push(path);
@@ -40,10 +44,10 @@ pub fn get_folder_list(dir: &PathBuf) -> Result<Vec<PathBuf>, std::io::Error> {
 }
 
 // get file list in dir
-pub fn get_file_list(dir: &PathBuf) -> Result<Vec<PathBuf>, std::io::Error> {
+pub async fn get_file_list(dir: &PathBuf) -> Result<Vec<PathBuf>, std::io::Error> {
     let mut file_list = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
+    let mut entries = fs::read_dir(dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         if path.is_file() {
             file_list.push(path);

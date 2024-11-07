@@ -54,6 +54,19 @@
             cursor: pointer;
             margin-bottom: 20px;
         }
+
+        .progress-bar {
+            width: 100%;
+            background-color: #f3f3f3;
+            border: 1px solid #ccc;
+            margin-top: 10px;
+        }
+
+        .progress-bar-fill {
+            height: 20px;
+            background-color: #4caf50;
+            width: 0%;
+        }
     </style>
 </head>
 
@@ -70,6 +83,9 @@
     <h2>Files</h2>
     <input type="file" id="file-content" required>
     <div id="file-list"></div>
+    <div class="progress-bar">
+        <div class="progress-bar-fill" id="progress-bar-fill"></div>
+    </div>
 
     <script>
         const pname = new URLSearchParams(window.location.search).get('pname');
@@ -169,15 +185,40 @@
         async function uploadFile(event) {
             const fileContent = event.target.files[0];
             const fileName = fileContent.name;
+
+            // Check if the file already exists
+            const response = await fetch(`/list_files/${pname}`);
+            const files = await response.json();
+            const fileExists = files.some(file => file.name === fileName);
+
+            if (fileExists) {
+                const overwrite = confirm(`File "${fileName}" already exists. Do you want to overwrite it?`);
+                if (!overwrite) {
+                    return;
+                }
+            }
+
             const arrayBuffer = await fileContent.arrayBuffer();
-            await fetch(`/new_file/${pname}/${fileName}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/octet-stream'
-                },
-                body: arrayBuffer
-            });
-            fetchFiles();
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `/new_file/${pname}/${fileName}`, true);
+            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+            xhr.upload.onprogress = function (event) {
+                if (event.lengthComputable) {
+                    const percentComplete = (event.loaded / event.total) * 100;
+                    document.getElementById('progress-bar-fill').style.width = percentComplete + '%';
+                }
+            };
+
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    fetchFiles();
+                } else {
+                    alert('Failed to upload file.');
+                }
+            };
+
+            xhr.send(arrayBuffer);
         }
 
         async function deleteFile(name) {

@@ -8,13 +8,15 @@ use futures::StreamExt;
 use md5;
 use serde::Deserialize;
 use serde_json::Map;
-use std::{io::Write, str};
+use std::str;
+use tokio::fs;
+use tokio::io::AsyncWriteExt;
 
 #[get("/list")]
 async fn list() -> Result<impl Responder> {
     // list all dir in tmp_dir
-    let dir = utils::get_tmp_dir();
-    let children = utils::get_folder_list(&dir)?;
+    let dir = utils::get_tmp_dir().await;
+    let children = utils::get_folder_list(&dir).await?;
     // read childern as str list
     let json_list: Vec<String> = children
         .iter()
@@ -37,18 +39,18 @@ struct NewDir {
 #[post("/new")]
 async fn new(payload: web::Json<NewDir>) -> Result<impl Responder> {
     // create new dir in tmp_dir
-    let dir = utils::get_tmp_dir();
+    let dir = utils::get_tmp_dir().await;
     let new_dir = dir.join(&payload.name);
-    std::fs::create_dir_all(&new_dir)?;
+    fs::create_dir_all(&new_dir).await?;
     Ok(HttpResponse::Ok())
 }
 
 #[delete("/delete/{pname}")]
 async fn delete(pname: web::Path<String>) -> Result<impl Responder> {
     // delete dir in tmp_dir
-    let dir = utils::get_tmp_dir();
+    let dir = utils::get_tmp_dir().await;
     let delete_dir = dir.join(pname.to_string());
-    std::fs::remove_dir_all(&delete_dir)?;
+    fs::remove_dir_all(&delete_dir).await?;
     Ok(HttpResponse::Ok())
 }
 
@@ -56,45 +58,45 @@ async fn delete(pname: web::Path<String>) -> Result<impl Responder> {
 // like [{content: "hello", timestamp: 123456}]
 #[get("/list_pasteboard/{pname}")]
 async fn list_pasteboard(pname: web::Path<String>) -> Result<impl Responder> {
-    let dir = utils::get_pasteboard_dir(&pname)?;
-    let pasteboard_files = utils::get_file_list(&dir)?;
-    let json_list: Vec<Map<String, serde_json::Value>> = pasteboard_files
-        .iter()
-        .map(|file| {
-            let name = file
-                .file_name()
-                .unwrap_or_default()
-                .to_str()
-                .unwrap_or_default()
-                .to_string();
-            let content = std::fs::read_to_string(file).unwrap_or_default();
-            let timestamp = file
-                .metadata()
-                .and_then(|m| m.modified()) // or m.created() if you want the creation time
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                })
-                .unwrap_or(0)
-                .to_string();
-            let mut map = Map::new();
-            map.insert("id".to_string(), serde_json::Value::String(name));
-            map.insert("content".to_string(), serde_json::Value::String(content));
-            map.insert(
-                "timestamp".to_string(),
-                serde_json::Value::String(timestamp),
-            );
-            map
-        })
-        .collect();
+    let dir = utils::get_pasteboard_dir(&pname).await?;
+    let pasteboard_files = utils::get_file_list(&dir).await?;
+    let mut json_list: Vec<Map<String, serde_json::Value>> = Vec::new();
+
+    for file in pasteboard_files {
+        let name = file
+            .file_name()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default()
+            .to_string();
+        let content = fs::read_to_string(&file).await.unwrap_or_default();
+        let timestamp = file
+            .metadata()
+            .and_then(|m| m.modified()) // or m.created() if you want the creation time
+            .map(|t| {
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            })
+            .unwrap_or(0)
+            .to_string();
+        let mut map = Map::new();
+        map.insert("id".to_string(), serde_json::Value::String(name));
+        map.insert("content".to_string(), serde_json::Value::String(content));
+        map.insert(
+            "timestamp".to_string(),
+            serde_json::Value::String(timestamp),
+        );
+        json_list.push(map);
+    }
+
     Ok(web::Json(json_list))
 }
 
 #[post("/new_pasteboard/{pname}")]
 async fn new_pasteboard(pname: web::Path<String>, payload: web::Payload) -> Result<impl Responder> {
     // create new pasteboard file in tmp_dir
-    let dir = utils::get_pasteboard_dir(&pname)?;
+    let dir = utils::get_pasteboard_dir(&pname).await?;
     // unix timestamp + md5 hash
     let content = str::from_utf8(&payload.to_bytes().await?.to_vec())?.to_string();
     let name = format!(
@@ -106,7 +108,7 @@ async fn new_pasteboard(pname: web::Path<String>, payload: web::Payload) -> Resu
         md5::compute(&content)
     );
     let pasteboard_file = dir.join(name);
-    std::fs::write(&pasteboard_file, &content)?;
+    fs::write(&pasteboard_file, &content).await?;
     Ok(HttpResponse::Ok())
 }
 
@@ -114,47 +116,45 @@ async fn new_pasteboard(pname: web::Path<String>, payload: web::Payload) -> Resu
 async fn delete_pasteboard(path: web::Path<(String, String)>) -> Result<impl Responder> {
     let (pname, id) = path.into_inner();
     // delete pasteboard file in tmp_dir
-    let dir = utils::get_pasteboard_dir(&pname)?;
+    let dir = utils::get_pasteboard_dir(&pname).await?;
     let delete_file = dir.join(id);
-    std::fs::remove_file(&delete_file)?;
+    fs::remove_file(&delete_file).await?;
     Ok(HttpResponse::Ok())
 }
 
-// list files file name with unix timestamp
 #[get("/list_files/{pname}")]
 async fn list_files(pname: web::Path<String>) -> Result<impl Responder> {
     // list all files file in tmp_dir
-    let dir = utils::get_files_dir(&pname)?;
-    let files_files = utils::get_file_list(&dir)?;
-    // read files_files as str list
-    let json_list: Vec<Map<String, serde_json::Value>> = files_files
-        .iter()
-        .map(|file| {
-            let name = file
-                .file_name()
-                .unwrap_or_default()
-                .to_str()
-                .unwrap_or_default()
-                .to_string();
-            let timestamp = file
-                .metadata()
-                .and_then(|m| m.modified()) // or m.created() if you want the creation time
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                })
-                .unwrap_or(0)
-                .to_string();
-            let mut map = Map::new();
-            map.insert("name".to_string(), serde_json::Value::String(name));
-            map.insert(
-                "timestamp".to_string(),
-                serde_json::Value::String(timestamp),
-            );
-            map
-        })
-        .collect();
+    let dir = utils::get_files_dir(&pname).await?;
+    let files_files = utils::get_file_list(&dir).await?;
+    let mut json_list: Vec<Map<String, serde_json::Value>> = Vec::new();
+
+    for file in files_files {
+        let name = file
+            .file_name()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default()
+            .to_string();
+        let timestamp = file
+            .metadata()
+            .and_then(|m| m.modified()) // or m.created() if you want the creation time
+            .map(|t| {
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            })
+            .unwrap_or(0)
+            .to_string();
+        let mut map = Map::new();
+        map.insert("name".to_string(), serde_json::Value::String(name));
+        map.insert(
+            "timestamp".to_string(),
+            serde_json::Value::String(timestamp),
+        );
+        json_list.push(map);
+    }
+
     Ok(web::Json(json_list))
 }
 
@@ -165,25 +165,14 @@ async fn new_file(
 ) -> Result<impl Responder> {
     let (pname, name) = path.into_inner();
     // create new files file in tmp_dir
-    let dir = utils::get_files_dir(&pname)?;
+    let dir = utils::get_files_dir(&pname).await?;
     let file_path = dir.join(&name);
+    let mut file = fs::File::create(&file_path).await?;
 
     while let Ok(Some(mut field)) = payload.try_next().await {
-        // File::create is blocking operation, use threadpool
-        let file_path_clone = file_path.clone();
-        let mut f = web::block(move || std::fs::File::create(file_path_clone)).await?;
-
-        // Field in turn is stream of *Bytes* object
         while let Some(chunk) = field.next().await {
-            let data = chunk.unwrap();
-            // filesystem operations are blocking, we have to use threadpool
-            f = web::block(move || {
-                f.and_then(|mut f| {
-                    f.write_all(&data)?;
-                    Ok(f)
-                })
-            })
-            .await?;
+            let data = chunk?;
+            file.write_all(&data).await?;
         }
     }
 
@@ -194,7 +183,7 @@ async fn new_file(
 async fn delete_files(path: web::Path<(String, String)>) -> Result<impl Responder> {
     let (pname, name) = path.into_inner();
     // delete files file in tmp_dir
-    let dir = utils::get_files_dir(&pname)?;
+    let dir = utils::get_files_dir(&pname).await?;
     let delete_file = dir.join(name.to_string());
     std::fs::remove_file(&delete_file)?;
     Ok(HttpResponse::Ok())
@@ -203,7 +192,7 @@ async fn delete_files(path: web::Path<(String, String)>) -> Result<impl Responde
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
-        let data_dir = utils::get_tmp_dir();
+        let data_dir = utils::_get_tmp_dir();
         App::new()
             .service(list)
             .service(new)
