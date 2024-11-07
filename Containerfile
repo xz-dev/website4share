@@ -1,5 +1,5 @@
 # Use the official Rust image as the build stage
-FROM rust:1-alpine3.20 as builder
+FROM docker.io/rust:1-alpine3.20 as builder
 
 # Install build dependencies
 RUN apk add --no-cache musl-dev openssl-dev
@@ -14,7 +14,7 @@ COPY . /usr/src/app/
 RUN cargo build --release
 
 # Use a smaller base image for the final stage
-FROM alpine:latest
+FROM docker.io/alpine:latest
 
 # Install runtime dependencies
 RUN apk add --no-cache libgcc libstdc++ openssl
