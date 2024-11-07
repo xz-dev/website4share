@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Child Directory</title>
+    <title>Share Space</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -20,6 +20,13 @@
 
         .item-name {
             flex-grow: 1;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: pre-wrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border: none;
+            background-color: transparent;
         }
 
         .item-time {
@@ -67,29 +74,36 @@
             background-color: #4caf50;
             width: 0%;
         }
+
+        .hidden {
+            display: none;
+        }
     </style>
 </head>
 
 <body>
-    <h1>Child Directory</h1>
+    <h1 id="page-title">Share Space:</h1>
     <button class="back-btn" onclick="window.location.href='/'">Back to Root</button>
     <h2>Pasteboard</h2>
     <form id="new-pasteboard-form">
-        <input type="text" id="pasteboard-content" placeholder="New pasteboard content" required>
-        <button type="submit">Create Pasteboard</button>
-        <button type="button" id="paste-from-clipboard">Paste from Clipboard</button>
+        <input type="text" id="pasteboard-content" placeholder="Text content" required>
+        <button type="submit">Push</button>
+        <button type="button" id="paste-from-clipboard">Paste from Local Clipboard</button>
     </form>
     <div id="pasteboard-list"></div>
 
     <h2>Files</h2>
+    <label for="file-content">Select a file to upload:</label>
     <input type="file" id="file-content" required>
-    <div id="file-list"></div>
-    <div class="progress-bar">
+    <div class="progress-bar hidden">
         <div class="progress-bar-fill" id="progress-bar-fill"></div>
     </div>
+    <div id="file-list"></div>
 
     <script>
         const pname = new URLSearchParams(window.location.search).get('pname');
+        document.title = `Share Space: ${pname}`; // Update the page title
+        document.getElementById('page-title').textContent = pname;
 
         async function fetchPasteboard() {
             const response = await fetch(`/list_pasteboard/${pname}`);
@@ -101,9 +115,12 @@
                 const itemDiv = document.createElement('div');
                 itemDiv.className = 'item';
 
-                const itemName = document.createElement('span');
+                const itemName = document.createElement('input');
                 itemName.className = 'item-name';
-                itemName.textContent = pasteboard.content;
+                itemName.value = pasteboard.content;
+                itemName.readOnly = true;
+                itemName.onclick = () => itemName.select();
+                itemName.onfocus = () => itemName.select();
 
                 const itemTime = document.createElement('span');
                 itemTime.className = 'item-time';
@@ -187,6 +204,14 @@
             const fileContent = event.target.files[0];
             const fileName = fileContent.name;
 
+            // Disable the file input while uploading and change its style to gray
+            const fileInput = document.getElementById('file-content');
+            fileInput.disabled = true;
+            fileInput.style.backgroundColor = '#d3d3d3'; // Light gray color
+
+            // Show the progress bar
+            document.querySelector('.progress-bar').classList.remove('hidden');
+
             // Check if the file already exists
             const response = await fetch(`/list_files/${pname}`);
             const files = await response.json();
@@ -195,6 +220,12 @@
             if (fileExists) {
                 const overwrite = confirm(`File "${fileName}" already exists. Do you want to overwrite it?`);
                 if (!overwrite) {
+                    // Hide the progress bar and re-enable the file input if the user cancels the upload
+                    document.querySelector('.progress-bar').classList.add('hidden');
+                    fileInput.disabled = false;
+                    fileInput.style.backgroundColor = ''; // Reset background color
+                    // clean the file input
+                    fileInput.value = '';
                     return;
                 }
             }
@@ -210,7 +241,7 @@
             let retryCount = 0;
             const maxRetries = 3;
 
-            function readAndSendChunk() {
+            async function readAndSendChunk() {
                 const start = currentChunk * chunkSize;
                 const end = Math.min(start + chunkSize, fileContent.size);
                 const blob = fileContent.slice(start, end);
@@ -218,52 +249,63 @@
                 const formData = new FormData();
                 formData.append('file', blob, fileName);
 
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', `/new_file/${pname}/${fileName}/${start}`, true);
-
-                xhr.upload.onprogress = function (event) {
-                    if (event.lengthComputable) {
-                        const percentComplete = ((currentChunk * chunkSize + event.loaded) / fileContent.size) * 100;
-                        document.getElementById('progress-bar-fill').style.width = percentComplete + '%';
-                    }
-                };
-
-                xhr.onload = function () {
-                    if (xhr.status === 200) {
-                        currentChunk++;
-                        if (currentChunk < totalChunks) {
-                            readAndSendChunk();
-                        } else {
-                            document.getElementById('progress-bar-fill').style.width = '100%';
-                            fetchFiles();
-                            // Check if the file was uploaded successfully
-                            checkFileUpload();
-                        }
+                try {
+                    await sendChunk(formData, start);
+                    currentChunk++;
+                    if (currentChunk < totalChunks) {
+                        await readAndSendChunk();
                     } else {
-                        handleUploadError();
+                        document.getElementById('progress-bar-fill').style.width = '100%';
+                        await fetchFiles();
+                        await checkFileUpload();
                     }
-                };
-
-                xhr.onerror = function () {
+                } catch (error) {
                     handleUploadError();
-                };
+                }
+            }
 
-                xhr.send(formData);
+            async function sendChunk(formData, start) {
+                return new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', `/new_file/${pname}/${fileName}/${start}`, true);
+
+                    xhr.upload.onprogress = function (event) {
+                        if (event.lengthComputable) {
+                            const percentComplete = ((currentChunk * chunkSize + event.loaded) / fileContent.size) * 100;
+                            document.getElementById('progress-bar-fill').style.width = percentComplete + '%';
+                        }
+                    };
+
+                    xhr.onload = function () {
+                        if (xhr.status === 200) {
+                            resolve();
+                        } else {
+                            reject(new Error('Failed to upload chunk'));
+                        }
+                    };
+
+                    xhr.onerror = function () {
+                        reject(new Error('Network error'));
+                    };
+
+                    xhr.send(formData);
+                });
             }
 
             function handleUploadError() {
                 if (retryCount < maxRetries) {
                     retryCount++;
                     alert(`File upload error. Retrying... (${retryCount}/${maxRetries})`);
-                    // Retry upload from the current chunk
                     readAndSendChunk();
                 } else {
                     alert('File upload failed after 3 attempts. Please try again manually.');
+                    document.querySelector('.progress-bar').classList.add('hidden');
+                    fileInput.disabled = false;
+                    fileInput.style.backgroundColor = ''; // Reset background color
                 }
             }
 
             async function checkFileUpload() {
-                // Check the size of the uploaded file on the server
                 const checkResponse = await fetch(`/check_new_file/${pname}/${fileName}`);
                 const checkResult = await checkResponse.json();
                 const serverFileSize = checkResult.size || 0;
@@ -271,11 +313,9 @@
                 if (serverFileSize !== fileContent.size) {
                     handleUploadError();
                 } else {
-                    // Mark the file upload as done
                     await fetch(`/done_new_file/${pname}/${fileName}`, {
                         method: 'POST'
                     });
-                    // Reset progress bar after a short delay
                     setTimeout(() => {
                         document.getElementById('progress-bar-fill').style.width = '0%';
                         alert('File uploaded successfully.');
@@ -284,7 +324,7 @@
                 }
             }
 
-            readAndSendChunk();
+            await readAndSendChunk();
         }
 
         async function deleteFile(name) {
@@ -296,17 +336,13 @@
             }
         }
 
-        async function downloadFile(name) {
-            const response = await fetch(`/files/${pname}/files/${name}`);
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
+        function downloadFile(name) {
             const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
+            a.href = `/files/${pname}/files/${name}`;
             a.download = name;
             document.body.appendChild(a);
             a.click();
-            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
         }
 
         function copyToClipboard(text) {
