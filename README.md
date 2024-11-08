@@ -77,3 +77,15 @@ To build and run the application using Docker, follow these steps:
 - `Cargo.toml`: Cargo configuration file.
 - `Containerfile`: Dockerfile for building the Docker image.
 - `static/`: Static files served by the application.
+
+## Feature
+1. Just a website
+2. Multi share thread
+3. Upload resume
+
+## ScreenShot
+- Home page:
+  ![图片](https://github.com/user-attachments/assets/5a3a385f-2b87-4cce-a174-19cc0f897b88)
+- Sub-page:
+  ![图片](https://github.com/user-attachments/assets/0b266b5f-3bf1-417a-9287-b817abc25905)
+  ![图片](https://github.com/user-attachments/assets/34dba68e-020a-48a8-8595-5b851516bf49)
