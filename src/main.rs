@@ -174,7 +174,8 @@ async fn new_file(
     };
     if offset == 0 {
         // touch file_name.uploading file for marking the file is uploading
-        let uploading_file = file_path.with_extension("uploading");
+        let file_ext = file_path.extension().unwrap_or_default().to_string_lossy() + ".uploading";
+        let uploading_file = file_path.with_extension(&*file_ext);
         fs::write(&uploading_file, "").await?;
     }
 
@@ -201,7 +202,9 @@ async fn check_new_file(path: web::Path<(String, String)>) -> Result<impl Respon
 
     let size = match fs::metadata(&file_path).await {
         Ok(metadata) => {
-            let uploading_file = file_path.with_extension("uploading");
+            let file_ext =
+                file_path.extension().unwrap_or_default().to_string_lossy() + ".uploading";
+            let uploading_file = file_path.with_extension(&*file_ext);
             if uploading_file.exists() {
                 metadata.len()
             } else {
@@ -223,7 +226,8 @@ async fn done_new_file(path: web::Path<(String, String)>) -> Result<impl Respond
     let (pname, name) = path.into_inner();
     let dir = utils::get_files_dir(&pname).await?;
     let file_path = dir.join(&name);
-    let uploading_file = file_path.with_extension("uploading");
+    let file_ext = file_path.extension().unwrap_or_default().to_string_lossy() + ".uploading";
+    let uploading_file = file_path.with_extension(&*file_ext);
     fs::remove_file(&uploading_file).await?;
     Ok(HttpResponse::Ok())
 }
