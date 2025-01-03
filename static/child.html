@@ -86,7 +86,7 @@
     <button class="back-btn" onclick="window.location.href='/'">Back to Root</button>
     <h2>Pasteboard</h2>
     <form id="new-pasteboard-form">
-        <input type="text" id="pasteboard-content" placeholder="Text content" required>
+        <textarea id="pasteboard-content" placeholder="Text content" required></textarea>
         <button type="submit">Push</button>
         <button type="button" id="paste-from-clipboard">Paste from Local Clipboard</button>
     </form>
@@ -115,7 +115,7 @@
                 const itemDiv = document.createElement('div');
                 itemDiv.className = 'item';
 
-                const itemName = document.createElement('input');
+                const itemName = document.createElement('textarea');
                 itemName.className = 'item-name';
                 itemName.value = pasteboard.content;
                 itemName.readOnly = true;
